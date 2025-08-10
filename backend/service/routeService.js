@@ -3,7 +3,73 @@ const mapsService = require('./mapsService');
 const mapsStepsService = require('./mapsStepsService');
 const airQualityService = require('./airQualityService');
 const geocodeService = require('./geocodeService');
+const circularRouteService = require('./circularRouteService');
 const scoreRoute = require('../utils/scoreRoute');
+
+exports.getCircularRoute = async (origin, options) => {
+  const [lat, lng] = origin.split(',').map(Number);
+  
+  // Generate different types of circular routes
+  const routeTypes = [
+    { type: 'duration', label: 'Duration-based', ...options },
+    { type: 'scenic', label: 'Scenic Route', ...options },
+    { type: 'fitness', label: 'Fitness Route', ...options }
+  ];
+  
+  const alternatives = await Promise.all(routeTypes.map(async (routeType) => {
+    // Generate waypoints for this route type
+    const waypoints = circularRouteService.generateCircularWaypoints(lat, lng, routeType);
+    
+    // Get directions for circular route
+    const steps = await circularRouteService.getCircularDirections(origin, waypoints, routeType);
+    
+    if (steps.length === 0) {
+      return null;
+    }
+    
+    // Get AQI for each step
+    const route = steps.map(s => ({ lat: s.start_location.lat, lng: s.start_location.lng }));
+    const pollutionData = await airQualityService.getAQIForRoute(route);
+    
+    // Get street name for origin
+    const originStreet = await geocodeService.getStreetName(lat, lng);
+    
+    const pollutionScore = scoreRoute(pollutionData);
+    const avgAQI = pollutionData.reduce((sum, p) => sum + p.aqi, 0) / pollutionData.length;
+    
+    return {
+      type: routeType.label,
+      from: originStreet,
+      to: originStreet,
+      isCircular: true,
+      requestedDuration: options.duration,
+      requestedDistance: options.distance,
+      steps: steps.map((s, i) => ({
+        instruction: s.instruction, // Already formatted
+        distance: s.distance,       // Already formatted
+        duration: s.duration,       // Already formatted
+        start_location: s.start_location,
+        end_location: s.end_location,
+        aqi: pollutionData[i] ? pollutionData[i].aqi : s.aqi || null
+      })),
+      pollutionScore,
+      avgAQI,
+      recommended: pollutionScore === 'Good' || pollutionScore === 'Moderate',
+    };
+  }));
+  
+  // Filter out null results and sort by air quality
+  const validAlternatives = alternatives.filter(alt => alt !== null);
+  const sorted = validAlternatives.sort((a, b) => a.avgAQI - b.avgAQI);
+  
+  return {
+    isCircular: true,
+    best: sorted[0],
+    alternative: sorted[1],
+    worst: sorted[2],
+    alternatives: sorted,
+  };
+};
 
 exports.getRecommendedRoute = async (from, to) => {
   // 1. Get detailed steps from Google Directions API

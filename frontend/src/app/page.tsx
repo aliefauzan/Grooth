@@ -142,7 +142,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-      <h1 className="text-3xl font-bold mb-6 text-blue-700">BreezyPath MVP Demo</h1>
+      <h1 className="text-3xl font-bold mb-6 text-blue-700">Grooth MVP Demo</h1>
       <form
         className="bg-white shadow rounded p-6 flex flex-col gap-4 w-full max-w-md"
         onSubmit={handleSubmit}

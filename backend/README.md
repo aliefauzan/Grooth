@@ -1,8 +1,8 @@
-# BreezyPath Backend
+# Grooth Backend
 
 ## Overview
 
-BreezyPath is an Express.js backend that provides bicycle/motorcycle route recommendations based on real-time air quality data. It integrates Google Maps APIs for routing and air quality, helping users avoid polluted routes.
+Grooth is an Express.js backend that provides bicycle/motorcycle route recommendations based on real-time air quality data. It integrates Google Maps APIs for routing and air quality, helping users avoid polluted routes.
 
 ## Features
 - Real-time air quality detection using Google Maps Air Quality API
@@ -49,8 +49,8 @@ npm start
 Or with Docker:
 
 ```bash
-docker build -t breezypath .
-docker run -p 5000:5000 breezypath
+docker build -t Grooth .
+docker run -p 5000:5000 Grooth
 ```
 
 ## API Usage

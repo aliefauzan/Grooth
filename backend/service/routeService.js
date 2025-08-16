@@ -72,15 +72,21 @@ exports.getCircularRoute = async (origin, options) => {
 };
 
 exports.getRecommendedRoute = async (from, to) => {
-  // 1. Get detailed steps from Google Directions API
+  // 1. Get detailed steps from OpenRoute Service Directions API
   const steps = await mapsStepsService.getBikeRouteSteps(from, to);
   if (!steps || steps.length === 0) {
     return {
-      error: 'No route steps found from Google Directions API.',
+      error: 'Unable to find a route between the specified locations. This could be because:',
+      suggestions: [
+        '• The coordinates are too far from any roads (try coordinates closer to streets)',
+        '• The area is not well-mapped for cycling routes',
+        '• The locations are in different disconnected road networks',
+        '• Try selecting points closer to main roads or intersections'
+      ],
       debug: {
         from,
         to,
-        stepsRaw: steps
+        stepsFound: steps ? steps.length : 0
       }
     };
   }
@@ -111,9 +117,9 @@ exports.getRecommendedRoute = async (from, to) => {
       from: startStreet,
       to: endStreet,
       steps: steps.map((s, i) => ({
-        instruction: s.html_instructions,
-        distance: s.distance.text,
-        duration: s.duration.text,
+        instruction: s.instruction,
+        distance: s.distance,
+        duration: s.duration,
         start_location: s.start_location,
         end_location: s.end_location,
         aqi: pdata[i] ? pdata[i].aqi : null

@@ -85,6 +85,22 @@ Each route includes:
 ## Development Notes
 
 - All API keys/secrets should be stored in `.env` and never committed.
+  - Use the provided `.env.example` as a template. Copy it to `.env` and fill in real keys.
+  - Before pushing to GitHub, ensure `.env` is listed in `.gitignore` (it is by default).
+  - Rotate any keys accidentally committed. See 'Remediation' below.
+
+## Security & GitHub checklist
+
+- Do NOT commit `.env` or any file containing secret tokens or private keys.
+- Add an `.env.example` (already provided) with no real secrets so contributors know required variables.
+- Run `git status --porcelain` to confirm no secret files are staged before pushing.
+- If you accidentally pushed secrets, rotate the keys immediately and remove them from history using tools like `git filter-repo` or `BFG Repo-Cleaner`.
+
+## Remediation steps if you find secrets in the repo
+
+1. Revoke/rotate the compromised keys in the corresponding provider console.
+2. Remove secrets from the git history (BFG or git filter-repo), then force-push the cleaned history.
+3. Inform any stakeholders and update build/deploy secrets (CI/CD, hosting providers).
 - Extend services in `service/` for new APIs or logic.
 - For frontend integration, use `/api/route` endpoint and proxy requests if needed.
 

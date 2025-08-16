@@ -1,28 +1,29 @@
-// Reverse geocode using Google Maps Geocoding API
-const https = require('https');
-const API_KEY = process.env.MAP_API_KEY;
+// Reverse geocode using OpenRoute Service Geocoding API
+const axios = require('axios');
+const API_KEY = process.env.OPEN_ROUTE_API_KEY;
 
-module.exports.getStreetName = (lat, lng) => {
-  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${API_KEY}`;
-  return new Promise((resolve) => {
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.results && json.results[0]) {
-            // Try to get street name from address components
-            const address = json.results[0].address_components;
-            const street = address.find(c => c.types.includes('route'));
-            resolve(street ? street.long_name : json.results[0].formatted_address);
-          } else {
-            resolve(`${lat},${lng}`);
-          }
-        } catch (e) {
-          resolve(`${lat},${lng}`);
-        }
-      });
-    }).on('error', () => resolve(`${lat},${lng}`));
-  });
+module.exports.getStreetName = async (lat, lng) => {
+  try {
+    const url = `https://api.openrouteservice.org/geocode/reverse?api_key=${API_KEY}&point.lon=${lng}&point.lat=${lat}&size=1`;
+    
+    const response = await axios.get(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+
+    if (response.data && response.data.features && response.data.features[0]) {
+      const feature = response.data.features[0];
+      const properties = feature.properties;
+      
+      // Try to get street name from properties
+      const streetName = properties.street || properties.name || properties.label;
+      return streetName || `${lat},${lng}`;
+    } else {
+      return `${lat},${lng}`;
+    }
+  } catch (error) {
+    console.error('Geocoding error:', error.message);
+    return `${lat},${lng}`;
+  }
 };

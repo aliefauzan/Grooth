@@ -1,9 +1,10 @@
 
 "use client";
 import dynamic from "next/dynamic";
-const MapSelector = dynamic(() => import("./MapSelector"), { ssr: false });
-import { GoogleMap, Polyline, Marker, HeatmapLayer } from '@react-google-maps/api';
 import { useState } from "react";
+
+const MapSelector = dynamic(() => import("./MapSelector"), { ssr: false });
+const LeafletMap = dynamic(() => import("./LeafletMap"), { ssr: false });
 
 type RouteStep = {
   instruction: string;
@@ -349,7 +350,8 @@ export default function Home() {
             
             // Polyline path for this route
             const path = route.steps && route.steps.length > 0 
-              ? route.steps.map((step) => step.start_location).concat([route.steps[route.steps.length - 1].end_location])
+              ? route.steps.map((step) => [step.start_location.lat, step.start_location.lng] as [number, number])
+                  .concat([[route.steps[route.steps.length - 1].end_location.lat, route.steps[route.steps.length - 1].end_location.lng]])
               : [];
             
             console.log(`Path for ${key}:`, path);
@@ -357,16 +359,12 @@ export default function Home() {
             // AQI color
             const aqiColor = route.pollutionScore === 'Good' ? 'text-green-700' : route.pollutionScore === 'Moderate' ? 'text-yellow-600' : 'text-red-600';
             
-            // Heatmap data - only if we have steps
-            const heatmapData = route.steps && route.steps.length > 0 
-              ? route.steps.map((step) => ({
-                  location: new window.google.maps.LatLng(step.start_location.lat, step.start_location.lng),
-                  weight: step.aqi || 0
-                }))
-              : [];
-              
             // Default center if no path
-            const mapCenter = path.length > 0 ? path[0] : { lat: -6.2088, lng: 106.8456 };
+            const mapCenter: [number, number] = path.length > 0 ? path[0] : [-6.2088, 106.8456];
+            
+            // Route color based on quality
+            const routeColor = key === 'best' ? '#22c55e' : key === 'worst' ? '#ef4444' : '#eab308';
+            
             return (
               <div key={key} className="mb-8 p-6 bg-white rounded-2xl shadow-xl border border-gray-200">
                 <h3 className={`font-bold text-lg mb-2 capitalize ${key === 'best' ? 'text-green-700' : key === 'worst' ? 'text-red-600' : 'text-yellow-600'}`}>
@@ -391,59 +389,62 @@ export default function Home() {
                   <span className="font-semibold text-gray-800">Air Quality:</span> <span className={`font-bold ${aqiColor}`}>{route.pollutionScore}</span>
                 </div>
                 <div className="mb-4">
-                  {path.length > 0 ? (
-                    <GoogleMap
-                      mapContainerStyle={{ width: '100%', height: '300px', borderRadius: '1rem' }}
-                      center={mapCenter}
-                      zoom={13}
-                    >
-                      <Polyline 
-                        path={path} 
-                        options={{ 
-                          strokeColor: key === 'best' ? '#22c55e' : key === 'worst' ? '#ef4444' : '#eab308', 
-                          strokeWeight: 5, 
-                          strokeOpacity: 0.8 
-                        }} 
-                      />
-                      {heatmapData.length > 0 && (
-                        <HeatmapLayer
-                          data={heatmapData}
-                          options={{ radius: 30, opacity: 0.5, gradient: ['#22c55e', '#eab308', '#ef4444'] }}
-                        />
-                      )}
-                      <Marker position={mapCenter} label={isCircular ? "🔄" : "A"} />
-                      {!isCircular && path.length > 1 && (
-                        <Marker position={path[path.length - 1]} label="B" />
-                      )}
-                    </GoogleMap>
-                  ) : (
-                    <div className="bg-gray-100 border border-gray-300 rounded-lg p-6 text-center">
-                      <div className="text-gray-600 mb-2">🗺️ Map Preview</div>
-                      <div className="text-sm text-gray-500">
-                        {isCircular ? "Circular route data loading..." : "Route data not available"}
-                      </div>
-                      <GoogleMap
-                        mapContainerStyle={{ width: '100%', height: '200px', borderRadius: '0.5rem', marginTop: '8px' }}
-                        center={mapCenter}
-                        zoom={13}
-                      >
-                        <Marker position={mapCenter} label={isCircular ? "🔄" : "📍"} />
-                      </GoogleMap>
-                    </div>
-                  )}
+                  <LeafletMap 
+                    path={path}
+                    mapCenter={mapCenter}
+                    routeColor={routeColor}
+                    isCircular={isCircular}
+                    routeSteps={route.steps}
+                  />
                 </div>
                 <div className="mb-2">
                   <span className="font-semibold text-gray-800">Steps:</span>
                   <ol className="list-decimal ml-6 text-gray-800">
                     {route.steps && route.steps.length > 0 ? (
-                      route.steps.map((step, idx) => (
-                        <li key={idx} className="mb-2">
-                          <div className="text-gray-800" dangerouslySetInnerHTML={{ __html: step.instruction }} />
-                          <div className={`text-sm font-bold ${step.aqi && step.aqi <= 50 ? 'text-green-600' : step.aqi && step.aqi <= 100 ? 'text-yellow-700' : 'text-red-600'} drop-shadow`}>
-                            {step.distance} ({step.duration}) | AQI: <span className={step.aqi && step.aqi <= 50 ? 'text-green-700' : step.aqi && step.aqi <= 100 ? 'text-yellow-600' : 'text-red-600'}>{step.aqi}</span>
-                          </div>
-                        </li>
-                      ))
+                      route.steps.map((step, idx) => {
+                        // Get AQI color for the step
+                        const getAQIColor = (aqi: number | null): string => {
+                          if (!aqi) return '#6b7280'; // Gray for unknown AQI
+                          if (aqi <= 50) return '#22c55e';        // Green - Good
+                          if (aqi <= 100) return '#eab308';       // Yellow - Moderate  
+                          if (aqi <= 150) return '#f97316';       // Orange - Unhealthy for Sensitive Groups
+                          if (aqi <= 200) return '#ef4444';       // Red - Unhealthy
+                          if (aqi <= 300) return '#a855f7';       // Purple - Very Unhealthy
+                          return '#7c2d12';                       // Maroon - Hazardous
+                        };
+
+                        const getAQICategory = (aqi: number | null): string => {
+                          if (!aqi) return 'Unknown';
+                          if (aqi <= 50) return 'Good';
+                          if (aqi <= 100) return 'Moderate';
+                          if (aqi <= 150) return 'Unhealthy for Sensitive Groups';
+                          if (aqi <= 200) return 'Unhealthy';
+                          if (aqi <= 300) return 'Very Unhealthy';
+                          return 'Hazardous';
+                        };
+
+                        const aqiColor = getAQIColor(step.aqi);
+                        const aqiCategory = getAQICategory(step.aqi);
+                        
+                        return (
+                          <li key={idx} className="mb-3 p-3 bg-gray-50 rounded-lg border-l-4" style={{ borderLeftColor: aqiColor }}>
+                            <div className="text-gray-800 font-medium" dangerouslySetInnerHTML={{ __html: step.instruction }} />
+                            <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
+                              <span className="text-gray-600">{step.distance} • {step.duration}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-600">AQI:</span>
+                                <span 
+                                  className="px-2 py-1 rounded-full text-white font-bold text-xs"
+                                  style={{ backgroundColor: aqiColor }}
+                                >
+                                  {step.aqi || 'N/A'}
+                                </span>
+                                <span className="text-xs text-gray-500">{aqiCategory}</span>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })
                     ) : (
                       <li className="text-gray-800">No steps found.</li>
                     )}

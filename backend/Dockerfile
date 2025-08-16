@@ -1,0 +1,26 @@
+# Backend Dockerfile - Node 18, multi-stage build
+FROM node:18-alpine AS builder
+WORKDIR /app
+
+# Install dependencies (full) for build step
+COPY package*.json ./
+RUN npm ci
+
+# Copy source and build (if build step present)
+COPY . .
+# If your backend has a build step, keep it; otherwise this will be a no-op
+RUN if [ -f package.json ] && (jq -r '.scripts.build // empty' package.json) | grep -q .; then npm run build; fi || true
+
+# Remove dev dependencies
+RUN npm prune --production || true
+
+# Final image
+FROM node:18-alpine
+WORKDIR /app
+
+# Copy from builder
+COPY --from=builder /app /app
+
+ENV NODE_ENV=production
+
+CMD ["node", "server.js"]

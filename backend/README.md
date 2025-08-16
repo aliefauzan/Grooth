@@ -101,6 +101,37 @@ Each route includes:
 1. Revoke/rotate the compromised keys in the corresponding provider console.
 2. Remove secrets from the git history (BFG or git filter-repo), then force-push the cleaned history.
 3. Inform any stakeholders and update build/deploy secrets (CI/CD, hosting providers).
+
+## Deploying with Cloud Build & Cloud Run
+
+This repo includes a `cloudbuild.yaml` at the repo root which builds Docker images for the frontend and backend and deploys them to Cloud Run.
+
+Quick steps (GCP):
+
+1. Authenticate and set project:
+
+```bash
+gcloud auth login
+gcloud config set project grooth-469212
+```
+
+2. Create secrets in Secret Manager (do NOT store secrets in the repo):
+
+```bash
+gcloud secrets create OPEN_ROUTE_API_KEY --replication-policy="automatic"
+echo -n "YOUR_OPENROUTE_KEY" | gcloud secrets versions add OPEN_ROUTE_API_KEY --data-file=-
+
+gcloud secrets create WAQI_API_KEY --replication-policy="automatic"
+echo -n "YOUR_WAQI_KEY" | gcloud secrets versions add WAQI_API_KEY --data-file=-
+```
+
+3. Trigger a Cloud Build using the included `cloudbuild.yaml`:
+
+```bash
+gcloud builds submit --config cloudbuild.yaml .
+```
+
+The Cloud Build will push images to Artifact Registry (GCR) and deploy both services to Cloud Run in `us-central1`.
 - Extend services in `service/` for new APIs or logic.
 - For frontend integration, use `/api/route` endpoint and proxy requests if needed.
 

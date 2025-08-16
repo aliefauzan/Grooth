@@ -1,0 +1,57 @@
+substitutions:
+  _PROJECT_ID: "grooth-469212"
+  _REGION: "asia-southeast2"
+
+steps:
+  # Build backend image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build backend'
+    args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/grooth-backend:$SHORT_SHA', '-f', 'backend/Dockerfile', '.']
+
+  # Build frontend image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build frontend'
+    args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/grooth-frontend:$SHORT_SHA', '-f', 'frontend/Dockerfile', '.']
+
+  # Push images
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push images'
+    args: ['push', 'gcr.io/${_PROJECT_ID}/grooth-backend:$SHORT_SHA']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push frontend'
+    args: ['push', 'gcr.io/${_PROJECT_ID}/grooth-frontend:$SHORT_SHA']
+
+  # Deploy backend to Cloud Run, pulling secrets from Secret Manager
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy backend to Cloud Run'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud run deploy grooth-backend \
+          --image gcr.io/${_PROJECT_ID}/grooth-backend:$SHORT_SHA \
+          --region ${_REGION} \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-secrets "OPEN_ROUTE_API_KEY=projects/${_PROJECT_ID}/secrets/OPEN_ROUTE_API_KEY:latest,WAQI_API_KEY=projects/${_PROJECT_ID}/secrets/WAQI_API_KEY:latest"
+
+  # Deploy frontend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy frontend to Cloud Run'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud run deploy grooth-frontend \
+          --image gcr.io/${_PROJECT_ID}/grooth-frontend:$SHORT_SHA \
+          --region ${_REGION} \
+          --platform managed \
+          --allow-unauthenticated
+
+images:
+  - 'gcr.io/${_PROJECT_ID}/grooth-backend:$SHORT_SHA'
+  - 'gcr.io/${_PROJECT_ID}/grooth-frontend:$SHORT_SHA'
+
+options:
+  substitutionOption: 'ALLOW_LOOSE'

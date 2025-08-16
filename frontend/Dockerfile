@@ -1,18 +1,43 @@
-# Frontend Dockerfile - Next.js static export
-FROM node:18-alpine AS build
+# Multi-stage build for Next.js application
+FROM node:18-alpine AS base
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Install dependencies
+FROM base AS deps
 COPY frontend/package*.json ./
 RUN npm ci
 
+# Build the application
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
-RUN npm run build
-RUN npm run export
 
-FROM nginx:stable-alpine
-COPY --from=build /app/out /usr/share/nginx/html
-COPY frontend/nginx/default.conf /etc/nginx/conf.d/default.conf
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN chmod -R 755 node_modules/.bin/
+RUN npx next build
 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Production image
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy the standalone build
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

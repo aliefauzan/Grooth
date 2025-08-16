@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Call the backend API
-    const backendUrl = `http://localhost:5000/api/route?${queryParams.toString()}`;
+    const backendUrl = `${process.env.BACKEND_URL || 'http://localhost:5000'}/api/route?${queryParams.toString()}`;
     const response = await fetch(backendUrl);
     
     if (!response.ok) {

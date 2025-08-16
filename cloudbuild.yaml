@@ -34,7 +34,7 @@ steps:
           --region ${_REGION} \
           --platform managed \
           --allow-unauthenticated \
-          --set-secrets "OPEN_ROUTE_API_KEY=projects/${_PROJECT_ID}/secrets/OPEN_ROUTE_API_KEY:latest,WAQI_API_KEY=projects/${_PROJECT_ID}/secrets/WAQI_API_KEY:latest"
+          --set-secrets "API_KEYS=api:latest"
 
   # Deploy frontend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -43,11 +43,15 @@ steps:
     args:
       - '-c'
       - |
+        # Get the backend service URL
+        BACKEND_URL=$$(gcloud run services describe grooth-backend --region ${_REGION} --format 'value(status.url)')
+        
         gcloud run deploy grooth-frontend \
           --image gcr.io/${_PROJECT_ID}/grooth-frontend:$BUILD_ID \
           --region ${_REGION} \
           --platform managed \
-          --allow-unauthenticated
+          --allow-unauthenticated \
+          --set-env-vars "BACKEND_URL=$$BACKEND_URL"
 
 images:
   - 'gcr.io/${_PROJECT_ID}/grooth-backend:$BUILD_ID'

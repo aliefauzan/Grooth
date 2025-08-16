@@ -21,6 +21,10 @@ WORKDIR /app
 # Copy from builder
 COPY --from=builder /app /app
 
+# Copy and make start script executable
+COPY backend/start.sh ./start.sh
+RUN chmod +x ./start.sh
+
 ENV NODE_ENV=production
 
-CMD ["node", "server.js"]
+CMD ["./start.sh"]

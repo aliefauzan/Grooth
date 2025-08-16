@@ -3,11 +3,11 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Install dependencies (full) for build step
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm ci
 
 # Copy source and build (if build step present)
-COPY . .
+COPY backend/ .
 # If your backend has a build step, keep it; otherwise this will be a no-op
 RUN if [ -f package.json ] && (jq -r '.scripts.build // empty' package.json) | grep -q .; then npm run build; fi || true
 

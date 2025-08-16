@@ -6,21 +6,21 @@ steps:
   # Build backend image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build backend'
-  args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/grooth-backend:$BUILD_ID', '-f', 'backend/Dockerfile', '.']
+    args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/grooth-backend:$BUILD_ID', '-f', 'backend/Dockerfile', '.']
 
   # Build frontend image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Build frontend'
-  args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/grooth-frontend:$BUILD_ID', '-f', 'frontend/Dockerfile', '.']
+    args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/grooth-frontend:$BUILD_ID', '-f', 'frontend/Dockerfile', '.']
 
   # Push images
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push images'
-  args: ['push', 'gcr.io/${_PROJECT_ID}/grooth-backend:$BUILD_ID']
+    args: ['push', 'gcr.io/${_PROJECT_ID}/grooth-backend:$BUILD_ID']
 
   - name: 'gcr.io/cloud-builders/docker'
     id: 'Push frontend'
-  args: ['push', 'gcr.io/${_PROJECT_ID}/grooth-frontend:$BUILD_ID']
+    args: ['push', 'gcr.io/${_PROJECT_ID}/grooth-frontend:$BUILD_ID']
 
   # Deploy backend to Cloud Run, pulling secrets from Secret Manager
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -29,22 +29,12 @@ steps:
     args:
       - '-c'
       - |
-        # Read single-file secret 'api' (KEY=VALUE lines), export them, and deploy
-        secret_content="$(gcloud secrets versions access latest --secret=api --project=${_PROJECT_ID})"
-        # Safely export each KEY=VALUE line
-        while IFS= read -r line; do
-          # skip empty lines and comments
-          [ -z "$line" ] && continue
-          case "$line" in \#*) continue ;; esac
-          export "$line"
-        done <<< "$secret_content"
-
         gcloud run deploy grooth-backend \
           --image gcr.io/${_PROJECT_ID}/grooth-backend:$BUILD_ID \
           --region ${_REGION} \
           --platform managed \
           --allow-unauthenticated \
-          --set-env-vars "OPEN_ROUTE_API_KEY=${OPEN_ROUTE_API_KEY},WAQI_API_KEY=${WAQI_API_KEY},MAP_API_KEY=${MAP_API_KEY}"
+          --set-secrets "OPEN_ROUTE_API_KEY=projects/${_PROJECT_ID}/secrets/OPEN_ROUTE_API_KEY:latest,WAQI_API_KEY=projects/${_PROJECT_ID}/secrets/WAQI_API_KEY:latest"
 
   # Deploy frontend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'

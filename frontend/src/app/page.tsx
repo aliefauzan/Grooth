@@ -13,10 +13,11 @@ type RouteStep = {
   start_location: { lat: number; lng: number };
   end_location: { lat: number; lng: number };
   aqi: number | null;
+  polyline?: Array<{ lat: number; lng: number }>; // Add polyline for detailed route rendering
 };
 
 type RouteOption = {
-  type: string;
+  type?: string;
   from: string;
   to: string;
   steps: RouteStep[];
@@ -26,6 +27,8 @@ type RouteOption = {
   isCircular?: boolean;
   requestedDuration?: string;
   requestedDistance?: string;
+  routeHash?: string; // Add hash for duplicate detection
+  fullPolyline?: Array<{ lat: number; lng: number }>; // Add full route polyline
 };
 
 type RouteResponse = {
@@ -34,6 +37,11 @@ type RouteResponse = {
   worst?: RouteOption;
   alternatives?: RouteOption[];
   isCircular?: boolean;
+  warning?: string; // Add warning for single route scenarios
+  routeCount?: number; // Add route count info
+  fallbackUsed?: boolean; // Add fallback indicator
+  error?: string;
+  suggestions?: string[];
 };
 
 export default function Home() {
@@ -320,6 +328,35 @@ export default function Home() {
           <h2 className="text-xl font-bold mb-4 text-blue-700">
             {isCircular ? "🔄 Circular Route Results" : "🗺️ Route Results"}
           </h2>
+          
+          {/* Show warning if only one route available */}
+          {result.warning && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start gap-3">
+                <span className="text-yellow-600 text-xl">⚠️</span>
+                <div>
+                  <div className="font-semibold text-yellow-800">Limited Route Options</div>
+                  <div className="text-sm text-yellow-700 mt-1">{result.warning}</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Show route count info */}
+          {result.routeCount && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <div className="text-blue-800 font-medium text-sm">
+                📊 Found {result.routeCount} unique route{result.routeCount > 1 ? 's' : ''} 
+                {result.routeCount === 1 ? ' (showing single available option)' : ' with different air quality profiles'}
+                {result.fallbackUsed && (
+                  <span className="block text-blue-600 text-xs mt-1">
+                    ⚡ Using optimized routing for long-distance travel
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+          
           {isCircular && (
             <div className="bg-purple-100 border border-purple-300 rounded-lg p-3 mb-4">
               <div className="text-purple-800 font-semibold">
@@ -415,6 +452,11 @@ export default function Home() {
                         key === 'alternative' ? 'text-orange-700' : 
                         'text-red-700'
                       }`}>{label}</span>
+                      {route.routeHash && result.routeCount === 1 && (
+                        <span className="text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">
+                          Same Route
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-1 text-sm">
                       <div className={`font-medium ${
@@ -442,11 +484,13 @@ export default function Home() {
             const selectedRoute = (result as any)[selectedRouteType] as RouteOption | undefined;
             if (!selectedRoute) return null;
             
-            // Polyline path for this route
-            const path = selectedRoute.steps && selectedRoute.steps.length > 0 
-              ? selectedRoute.steps.map((step) => [step.start_location.lat, step.start_location.lng] as [number, number])
-                  .concat([[selectedRoute.steps[selectedRoute.steps.length - 1].end_location.lat, selectedRoute.steps[selectedRoute.steps.length - 1].end_location.lng]])
-              : [];
+            // Polyline path for this route - use full polyline if available, otherwise fall back to step coordinates
+            const path = selectedRoute.fullPolyline && selectedRoute.fullPolyline.length > 0
+              ? selectedRoute.fullPolyline.map((point) => [point.lat, point.lng] as [number, number])
+              : selectedRoute.steps && selectedRoute.steps.length > 0 
+                ? selectedRoute.steps.map((step) => [step.start_location.lat, step.start_location.lng] as [number, number])
+                    .concat([[selectedRoute.steps[selectedRoute.steps.length - 1].end_location.lat, selectedRoute.steps[selectedRoute.steps.length - 1].end_location.lng]])
+                : [];
             
             // AQI color
             const aqiColor = selectedRoute.pollutionScore === 'Good' ? 'text-green-700' : selectedRoute.pollutionScore === 'Moderate' ? 'text-yellow-600' : 'text-red-600';

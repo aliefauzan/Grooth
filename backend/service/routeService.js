@@ -4,6 +4,7 @@ const mapsStepsService = require('./mapsStepsService');
 const airQualityService = require('./airQualityService');
 const geocodeService = require('./geocodeService');
 const circularRouteService = require('./circularRouteService');
+const routeDiversificationService = require('./routeDiversificationService');
 const scoreRoute = require('../utils/scoreRoute');
 
 exports.getCircularRoute = async (origin, options) => {
@@ -72,91 +73,191 @@ exports.getCircularRoute = async (origin, options) => {
 };
 
 exports.getRecommendedRoute = async (from, to) => {
-  // 1. Get multiple route alternatives using different profiles and preferences
+  console.log(`Getting route recommendations from ${from} to ${to}`);
+  
+  try {
+    // Calculate distance between origin and destination
+    const [fromLat, fromLng] = from.split(',').map(Number);
+    const [toLat, toLng] = to.split(',').map(Number);
+    const distance = calculateDistance(fromLat, fromLng, toLat, toLng);
+    
+    console.log(`Distance between points: ${distance.toFixed(2)} km`);
+    
+    // For very long distances (>100km), fall back to original service
+    // as cycling profiles won't work well for such distances
+    if (distance > 100) {
+      console.log(`Distance too large for cycling profiles (${distance.toFixed(2)} km), using fallback service`);
+      return await getFallbackRoutes(from, to);
+    }
+    
+    // 1. Try to get diverse routes using the new diversification service
+    let diverseRoutes;
+    try {
+      diverseRoutes = await routeDiversificationService.getDiverseRoutes(from, to);
+    } catch (diversificationError) {
+      console.log(`Route diversification failed: ${diversificationError.message}, falling back to original service`);
+      return await getFallbackRoutes(from, to);
+    }
+    
+    if (diverseRoutes.length === 0) {
+      console.log('No diverse routes found, falling back to original service');
+      return await getFallbackRoutes(from, to);
+    }
+
+    console.log(`Found ${diverseRoutes.length} diverse routes`);
+
+    // 2. Process each route to get real AQI data and calculate scores
+    const routeAlternatives = await Promise.all(diverseRoutes.map(async (routeData, routeIndex) => {
+      const steps = routeData.steps;
+      const fullPolyline = routeData.fullPolyline;
+      
+      // Get coordinates for AQI lookup
+      const route = steps.map(s => ({ lat: s.start_location.lat, lng: s.start_location.lng }));
+      
+      // Get real AQI data for this route (no artificial modification)
+      const pollutionData = await airQualityService.getAQIForRoute(route);
+      
+      // Get street names for start and end
+      const [start, end] = [route[0], route[route.length - 1]];
+      const [startStreet, endStreet] = await Promise.all([
+        geocodeService.getStreetName(start.lat, start.lng),
+        geocodeService.getStreetName(end.lat, end.lng)
+      ]);
+      
+      // Calculate pollution score based on real data
+      const pollutionScore = scoreRoute(pollutionData);
+      const avgAQI = pollutionData.reduce((sum, p) => sum + p.aqi, 0) / pollutionData.length;
+      
+      const routeLabels = ['best', 'alternative', 'worst'];
+      
+      return {
+        type: routeLabels[routeIndex] || 'alternative',
+        from: startStreet,
+        to: endStreet,
+        steps: steps.map((s, i) => ({
+          instruction: s.instruction,
+          distance: s.distance,
+          duration: s.duration,
+          start_location: s.start_location,
+          end_location: s.end_location,
+          aqi: pollutionData[i] ? pollutionData[i].aqi : null,
+          polyline: s.polyline // Include polyline data for detailed route rendering
+        })),
+        fullPolyline: fullPolyline, // Add full route polyline
+        pollutionScore,
+        avgAQI: Math.round(avgAQI * 100) / 100,
+        recommended: pollutionScore === 'Good' || pollutionScore === 'Moderate',
+        routeHash: generateRouteHash(steps) // Add hash to detect identical routes
+      };
+    }));
+
+    // 3. Sort by real air quality (best AQI first)
+    const sorted = [...routeAlternatives].sort((a, b) => a.avgAQI - b.avgAQI);
+    
+    // 4. Validate that routes are actually different
+    const uniqueRoutes = [];
+    const usedHashes = new Set();
+    
+    for (const route of sorted) {
+      if (!usedHashes.has(route.routeHash)) {
+        uniqueRoutes.push(route);
+        usedHashes.add(route.routeHash);
+      }
+    }
+    
+    console.log(`Filtered to ${uniqueRoutes.length} unique routes`);
+    
+    // 5. If we only have one unique route, be transparent about it
+    if (uniqueRoutes.length === 1) {
+      console.log('Only one unique route found - showing as single option');
+      return {
+        best: uniqueRoutes[0],
+        alternative: null,
+        worst: null,
+        alternatives: uniqueRoutes,
+        warning: 'Only one viable route found between these locations. Consider choosing locations with more road network options for route alternatives.',
+        routeCount: 1
+      };
+    }
+    
+    // 6. Return properly labeled routes
+    const result = {
+      best: uniqueRoutes[0],
+      alternative: uniqueRoutes[1] || null,
+      worst: uniqueRoutes[2] || uniqueRoutes[uniqueRoutes.length - 1] || null,
+      alternatives: uniqueRoutes,
+      routeCount: uniqueRoutes.length
+    };
+    
+    // Log for debugging
+    console.log('Route AQI summary:', {
+      best: result.best?.avgAQI,
+      alternative: result.alternative?.avgAQI,
+      worst: result.worst?.avgAQI
+    });
+    
+    return result;
+    
+  } catch (error) {
+    console.error('Error in getRecommendedRoute:', error);
+    return {
+      error: 'Unable to generate route recommendations',
+      details: error.message,
+      suggestions: [
+        '• Check your internet connection',
+        '• Verify that the coordinates are valid',
+        '• Try again with different origin/destination points'
+      ]
+    };
+  }
+};
+
+/**
+ * Fallback to original route service for long distances or when diversification fails
+ */
+async function getFallbackRoutes(from, to) {
+  console.log('Using fallback route service');
+  
+  // Use the original logic with different profiles
   const routePromises = [
-    // Best route: cycling-regular (optimized for air quality)
     mapsStepsService.getBikeRouteSteps(from, to, 'cycling-regular'),
-    // Alternative route: try different profile or add slight route variation
     mapsStepsService.getBikeRouteSteps(from, to, 'cycling-road'),
-    // Worst route: driving route (typically more polluted)
     mapsStepsService.getBikeRouteSteps(from, to, 'driving-car')
   ];
 
   const allRouteSteps = await Promise.all(routePromises);
-  
-  // Filter out any failed route requests
-  const validRoutes = allRouteSteps.filter(steps => steps && steps.length > 0);
+  const validRoutes = allRouteSteps.filter(result => result && result.steps && result.steps.length > 0);
   
   if (validRoutes.length === 0) {
     return {
-      error: 'Unable to find a route between the specified locations. This could be because:',
+      error: 'Unable to find any routes between the specified locations.',
       suggestions: [
-        '• The coordinates are too far from any roads (try coordinates closer to streets)',
-        '• The area is not well-mapped for cycling routes',
-        '• The locations are in different disconnected road networks',
-        '• Try selecting points closer to main roads or intersections'
+        '• The coordinates may be too far from roads',
+        '• The distance may be too large for available routing profiles',
+        '• Try selecting points closer to main roads or intersections',
+        '• Consider if the locations are reachable by the selected transport mode'
       ],
-      debug: {
-        from,
-        to,
-        attemptsFound: allRouteSteps.map(steps => steps ? steps.length : 0)
-      }
+      debug: { from, to, routesFound: 0 }
     };
   }
 
-  // If we only have one route, create variations by taking different segments
-  while (validRoutes.length < 3 && validRoutes.length > 0) {
-    const baseRoute = validRoutes[0];
-    if (baseRoute.length > 10) {
-      // Create a variation by taking a different path (simplified simulation)
-      const variation = [...baseRoute];
-      // Slightly modify some steps for variation (in real implementation, 
-      // this would use different waypoints or route preferences)
-      variation.forEach((step, idx) => {
-        if (idx % 3 === 0) {
-          // Add some variation to the instruction to simulate different path
-          step.instruction = `Alternative: ${step.instruction}`;
-        }
-      });
-      validRoutes.push(variation);
-    } else {
-      break;
-    }
-  }
-
-  // Process each route to get AQI data and calculate scores
-  const routeAlternatives = await Promise.all(validRoutes.slice(0, 3).map(async (steps, routeIndex) => {
-    // 2. Get AQI for each step start point
+  // Process routes without artificial modification
+  const routeAlternatives = await Promise.all(validRoutes.slice(0, 3).map(async (routeResult, routeIndex) => {
+    const steps = routeResult.steps;
     const route = steps.map(s => ({ lat: s.start_location.lat, lng: s.start_location.lng }));
-    let pollutionData = await airQualityService.getAQIForRoute(route);
+    const pollutionData = await airQualityService.getAQIForRoute(route);
     
-    // 3. Get street names for start and end
     const [start, end] = [route[0], route[route.length - 1]];
     const [startStreet, endStreet] = await Promise.all([
       geocodeService.getStreetName(start.lat, start.lng),
       geocodeService.getStreetName(end.lat, end.lng)
     ]);
     
-    // 4. Apply different pollution scenarios for different route types
-    if (routeIndex === 1) {
-      // Alternative route: slightly modify pollution data to simulate different areas
-      pollutionData = pollutionData.map(p => ({
-        ...p,
-        aqi: Math.min(200, Math.max(20, p.aqi + (Math.random() - 0.5) * 30))
-      }));
-    } else if (routeIndex === 2) {
-      // Worst route: increase pollution levels to simulate busier roads
-      pollutionData = pollutionData.map(p => ({
-        ...p,
-        aqi: Math.min(200, Math.max(30, p.aqi * 1.3 + (Math.random() * 20)))
-      }));
-    }
-    
-    // 5. Score the route
     const pollutionScore = scoreRoute(pollutionData);
     const avgAQI = pollutionData.reduce((sum, p) => sum + p.aqi, 0) / pollutionData.length;
     
     const routeLabels = ['best', 'alternative', 'worst'];
+    const profiles = ['cycling-regular', 'cycling-road', 'driving-car'];
     
     return {
       type: routeLabels[routeIndex],
@@ -168,21 +269,61 @@ exports.getRecommendedRoute = async (from, to) => {
         duration: s.duration,
         start_location: s.start_location,
         end_location: s.end_location,
-        aqi: pollutionData[i] ? pollutionData[i].aqi : null
+        aqi: pollutionData[i] ? pollutionData[i].aqi : null,
+        polyline: s.polyline || null
       })),
       pollutionScore,
-      avgAQI: Math.round(avgAQI * 100) / 100, // Round to 2 decimal places
+      avgAQI: Math.round(avgAQI * 100) / 100,
       recommended: pollutionScore === 'Good' || pollutionScore === 'Moderate',
+      routeHash: generateRouteHash(steps),
+      profile: profiles[routeIndex], // Add profile info for fallback routes
+      fullPolyline: routeResult.fullPolyline || null
     };
   }));
 
-  // Sort alternatives by avgAQI: best (lowest), alternative (middle), worst (highest)
   const sorted = [...routeAlternatives].sort((a, b) => a.avgAQI - b.avgAQI);
   
   return {
     best: sorted[0],
-    alternative: sorted[1] || sorted[0], // Fallback if only one route
-    worst: sorted[2] || sorted[0], // Fallback if only one route
+    alternative: sorted[1] || null,
+    worst: sorted[2] || null,
     alternatives: sorted,
+    routeCount: sorted.length,
+    fallbackUsed: true // Indicate that fallback was used
   };
-};
+}
+
+/**
+ * Calculate distance between two points in km
+ */
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng/2) * Math.sin(dLng/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+/**
+ * Generate a hash for a route to detect identical routes
+ */
+function generateRouteHash(steps) {
+  // Create a hash based on key coordinates
+  const keyPoints = steps
+    .filter((_, index) => index % Math.max(1, Math.floor(steps.length / 10)) === 0) // Sample every ~10%
+    .map(step => `${step.start_location.lat.toFixed(4)},${step.start_location.lng.toFixed(4)}`)
+    .join('|');
+  
+  // Simple hash function
+  let hash = 0;
+  for (let i = 0; i < keyPoints.length; i++) {
+    const char = keyPoints.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  return hash.toString(36);
+}

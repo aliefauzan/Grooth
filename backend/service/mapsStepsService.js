@@ -91,7 +91,7 @@ async function tryWithDrivingProfile(from, to) {
             
             // Convert OpenRoute step format to our expected format
             const stepData = {
-              instruction: `(Driving route) ${step.instruction || 'Continue'}`, // Mark as driving route
+              instruction: `(Fallback route) ${step.instruction || 'Continue'}`,
               distance: step.distance >= 1 ? `${step.distance.toFixed(2)} km` : `${(step.distance * 1000).toFixed(0)} m`,
               duration: `${Math.round(step.duration / 60)} min`,
               start_location: {
@@ -101,7 +101,12 @@ async function tryWithDrivingProfile(from, to) {
               end_location: {
                 lat: endCoord[1],
                 lng: endCoord[0]
-              }
+              },
+              // Add polyline coordinates for this step
+              polyline: coordinates.slice(startIdx, endIdx + 1).map(coord => ({
+                lat: coord[1],
+                lng: coord[0]
+              }))
             };
             steps.push(stepData);
           });
@@ -109,14 +114,24 @@ async function tryWithDrivingProfile(from, to) {
       });
       
       console.log(`Fallback successful: ${steps.length} steps found with driving profile`);
-      return steps;
+      
+      // Also return the full polyline for the entire route
+      const fullPolyline = coordinates.map(coord => ({
+        lat: coord[1],
+        lng: coord[0]
+      }));
+      
+      return {
+        steps: steps,
+        fullPolyline: fullPolyline
+      };
     } else {
       console.log('No routes found even with driving profile fallback');
-      return [];
+      return null;
     }
   } catch (fallbackError) {
     console.error('Fallback with driving profile also failed:', fallbackError.message);
-    return [];
+    return null;
   }
 }
 
@@ -200,7 +215,12 @@ module.exports.getBikeRouteSteps = async (from, to, profile = 'cycling-regular')
               end_location: {
                 lat: endCoord[1],
                 lng: endCoord[0]
-              }
+              },
+              // Add polyline coordinates for this step
+              polyline: coordinates.slice(startIdx, endIdx + 1).map(coord => ({
+                lat: coord[1],
+                lng: coord[0]
+              }))
             };
             steps.push(stepData);
           });
@@ -208,10 +228,20 @@ module.exports.getBikeRouteSteps = async (from, to, profile = 'cycling-regular')
       });
       
       console.log(`Route found using ${profile}: ${steps.length} steps`);
-      return steps;
+      
+      // Also return the full polyline
+      const fullPolyline = coordinates.map(coord => ({
+        lat: coord[1],
+        lng: coord[0]
+      }));
+      
+      return {
+        steps: steps,
+        fullPolyline: fullPolyline
+      };
     } else {
       console.log(`No routes found in OpenRoute response for profile ${profile}:`, response.data);
-      return [];
+      return null;
     }
   } catch (error) {
     console.error(`OpenRoute Directions error for profile ${profile}:`, error.message);

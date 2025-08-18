@@ -115,10 +115,13 @@ const LeafletMap = ({ path, mapCenter, routeColor, isCircular, markerIcons, rout
 
     // Create individual segments with AQI-based colors
     return routeSteps.map((step: any, index: number) => {
-      const segmentPath = [
-        [step.start_location.lat, step.start_location.lng],
-        [step.end_location.lat, step.end_location.lng]
-      ];
+      // Use detailed polyline if available, otherwise fall back to start-end line
+      const segmentPath = step.polyline && step.polyline.length > 0
+        ? step.polyline.map((point: any) => [point.lat, point.lng])
+        : [
+            [step.start_location.lat, step.start_location.lng],
+            [step.end_location.lat, step.end_location.lng]
+          ];
       
       const aqiColor = getAQIColor(step.aqi);
       const aqiCategory = getAQICategory(step.aqi);
@@ -130,7 +133,8 @@ const LeafletMap = ({ path, mapCenter, routeColor, isCircular, markerIcons, rout
           pathOptions={{
             color: aqiColor,
             weight: 6,
-            opacity: 0.9
+            opacity: 0.9,
+            smoothFactor: 1.0 // Smooth the polyline
           }}
         >
           <Popup>
@@ -147,6 +151,11 @@ const LeafletMap = ({ path, mapCenter, routeColor, isCircular, markerIcons, rout
                 </span>
               </div>
               <div className="text-xs text-gray-500 mt-1">{aqiCategory}</div>
+              {step.polyline && step.polyline.length > 0 && (
+                <div className="text-xs text-blue-500 mt-1">
+                  📍 {step.polyline.length} route points
+                </div>
+              )}
             </div>
           </Popup>
         </Polyline>

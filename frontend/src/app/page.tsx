@@ -48,6 +48,7 @@ export default function Home() {
   const [routeType, setRouteType] = useState("balanced");
   const [currentLocation, setCurrentLocation] = useState<{lat: number, lng: number} | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [selectedRouteType, setSelectedRouteType] = useState<'best' | 'alternative' | 'worst'>('best');
 
   const handleSubmit = async (e: any) => {
     e.preventDefault();
@@ -315,7 +316,7 @@ export default function Home() {
       {error && <div className="text-red-600 mt-4">{error}</div>}
 
       {result && (
-        <div className="mt-8 w-full max-w-3xl">
+        <div className="mt-8 w-full max-w-4xl">
           <h2 className="text-xl font-bold mb-4 text-blue-700">
             {isCircular ? "🔄 Circular Route Results" : "🗺️ Route Results"}
           </h2>
@@ -330,129 +331,274 @@ export default function Home() {
             </div>
           )}
           
-          {/* Debug Information */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="mb-4 p-3 bg-gray-100 rounded-lg text-xs">
-              <details>
-                <summary className="cursor-pointer font-semibold">🔍 Debug Data</summary>
-                <pre className="mt-2 text-xs overflow-auto">{JSON.stringify(result, null, 2)}</pre>
-              </details>
+          {/* Route Type Pagination Selector */}
+          <div className="mb-6 bg-white rounded-xl shadow-lg p-4">
+            <div className="flex justify-center">
+              <div className="flex bg-gray-100 rounded-lg p-1 space-x-1">
+                {([
+                  { key: 'best', label: 'Good Route', icon: '🥇', color: 'green' },
+                  { key: 'alternative', label: 'Alternative Route', icon: '🥈', color: 'yellow' },
+                  { key: 'worst', label: 'Bad Route', icon: '🥉', color: 'red' }
+                ] as const).map(({ key, label, icon, color }) => {
+                  const route = (result as any)[key] as RouteOption | undefined;
+                  const isSelected = selectedRouteType === key;
+                  const isAvailable = !!route;
+                  
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedRouteType(key)}
+                      disabled={!isAvailable}
+                      className={`
+                        flex items-center gap-2 px-4 py-2 rounded-md font-semibold transition-all duration-200
+                        ${isSelected
+                          ? key === 'best' 
+                            ? 'bg-green-600 text-white shadow-md'
+                            : key === 'alternative'
+                            ? 'bg-orange-600 text-white shadow-md'
+                            : 'bg-red-600 text-white shadow-md'
+                          : isAvailable
+                          ? key === 'best'
+                            ? 'bg-white text-green-700 hover:bg-green-50 border border-green-200'
+                            : key === 'alternative'
+                            ? 'bg-white text-orange-700 hover:bg-orange-50 border border-orange-200'
+                            : 'bg-white text-red-700 hover:bg-red-50 border border-red-200'
+                          : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        }
+                      `}
+                    >
+                      <span className="text-lg">{icon}</span>
+                      <span className="text-sm font-medium">{label}</span>
+                      {!isAvailable && <span className="text-xs">(N/A)</span>}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
-          
-          {["best", "alternative", "worst"].map((key) => {
-            const route = (result as any)[key] as RouteOption | undefined;
-            if (!route) return null;
             
-            // Debug logging
-            console.log(`Route ${key}:`, route);
-            console.log(`Route steps:`, route.steps);
+            {/* Route Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              {([
+                { key: 'best', label: 'Good Route', icon: '🥇', color: 'green' },
+                { key: 'alternative', label: 'Alternative', icon: '🥈', color: 'yellow' },
+                { key: 'worst', label: 'Bad Route', icon: '🥉', color: 'red' }
+              ] as const).map(({ key, label, icon, color }) => {
+                const route = (result as any)[key] as RouteOption | undefined;
+                if (!route) return null;
+                
+                const isSelected = selectedRouteType === key;
+                
+                return (
+                  <div
+                    key={key}
+                    className={`
+                      p-3 rounded-lg border-2 transition-all duration-200 cursor-pointer
+                      ${isSelected
+                        ? key === 'best'
+                          ? 'border-green-500 bg-green-50 shadow-md'
+                          : key === 'alternative'
+                          ? 'border-orange-500 bg-orange-50 shadow-md'
+                          : 'border-red-500 bg-red-50 shadow-md'
+                        : key === 'best'
+                        ? 'border-gray-200 bg-white hover:border-green-300 hover:bg-green-25'
+                        : key === 'alternative'
+                        ? 'border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-25'
+                        : 'border-gray-200 bg-white hover:border-red-300 hover:bg-red-25'
+                      }
+                    `}
+                    onClick={() => setSelectedRouteType(key)}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-lg">{icon}</span>
+                      <span className={`font-semibold ${
+                        key === 'best' ? 'text-green-700' : 
+                        key === 'alternative' ? 'text-orange-700' : 
+                        'text-red-700'
+                      }`}>{label}</span>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className={`font-medium ${
+                        key === 'best' ? 'text-green-600' : 
+                        key === 'alternative' ? 'text-orange-600' : 
+                        'text-red-600'
+                      }`}>
+                        Air Quality: {route.pollutionScore}
+                      </div>
+                      <div className="text-gray-600">
+                        Avg AQI: {route.avgAQI || 'N/A'}
+                      </div>
+                      <div className="text-gray-600">
+                        Steps: {route.steps?.length || 0}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Selected Route Details */}
+          {(() => {
+            const selectedRoute = (result as any)[selectedRouteType] as RouteOption | undefined;
+            if (!selectedRoute) return null;
             
             // Polyline path for this route
-            const path = route.steps && route.steps.length > 0 
-              ? route.steps.map((step) => [step.start_location.lat, step.start_location.lng] as [number, number])
-                  .concat([[route.steps[route.steps.length - 1].end_location.lat, route.steps[route.steps.length - 1].end_location.lng]])
+            const path = selectedRoute.steps && selectedRoute.steps.length > 0 
+              ? selectedRoute.steps.map((step) => [step.start_location.lat, step.start_location.lng] as [number, number])
+                  .concat([[selectedRoute.steps[selectedRoute.steps.length - 1].end_location.lat, selectedRoute.steps[selectedRoute.steps.length - 1].end_location.lng]])
               : [];
             
-            console.log(`Path for ${key}:`, path);
-            
             // AQI color
-            const aqiColor = route.pollutionScore === 'Good' ? 'text-green-700' : route.pollutionScore === 'Moderate' ? 'text-yellow-600' : 'text-red-600';
+            const aqiColor = selectedRoute.pollutionScore === 'Good' ? 'text-green-700' : selectedRoute.pollutionScore === 'Moderate' ? 'text-yellow-600' : 'text-red-600';
             
             // Default center if no path
             const mapCenter: [number, number] = path.length > 0 ? path[0] : [-6.2088, 106.8456];
             
             // Route color based on quality
-            const routeColor = key === 'best' ? '#22c55e' : key === 'worst' ? '#ef4444' : '#eab308';
+            const routeColor = selectedRouteType === 'best' ? '#22c55e' : selectedRouteType === 'worst' ? '#ef4444' : '#eab308';
             
             return (
-              <div key={key} className="mb-8 p-6 bg-white rounded-2xl shadow-xl border border-gray-200">
-                <h3 className={`font-bold text-lg mb-2 capitalize ${key === 'best' ? 'text-green-700' : key === 'worst' ? 'text-red-600' : 'text-yellow-600'}`}>
-                  {isCircular ? `${key === 'best' ? '🥇' : key === 'worst' ? '🥉' : '🥈'} ${key} Circular Route` : `${key} Route`}
-                </h3>
-                {!isCircular && (
-                  <>
-                    <div className="mb-2">
-                      <span className="font-semibold text-blue-700">From:</span> <span className="font-bold text-blue-900">{route.from}</span>
-                    </div>
-                    <div className="mb-2">
-                      <span className="font-semibold text-green-700">To:</span> <span className="font-bold text-green-900">{route.to}</span>
-                    </div>
-                  </>
-                )}
-                {isCircular && (
-                  <div className="mb-2">
-                    <span className="font-semibold text-purple-700">Round Trip:</span> <span className="font-bold text-purple-900">{route.from} → Loop → {route.from}</span>
-                  </div>
-                )}
-                <div className="mb-2">
-                  <span className="font-semibold text-gray-800">Air Quality:</span> <span className={`font-bold ${aqiColor}`}>{route.pollutionScore}</span>
-                </div>
-                <div className="mb-4">
-                  <LeafletMap 
-                    path={path}
-                    mapCenter={mapCenter}
-                    routeColor={routeColor}
-                    isCircular={isCircular}
-                    routeSteps={route.steps}
-                  />
-                </div>
-                <div className="mb-2">
-                  <span className="font-semibold text-gray-800">Steps:</span>
-                  <ol className="list-decimal ml-6 text-gray-800">
-                    {route.steps && route.steps.length > 0 ? (
-                      route.steps.map((step, idx) => {
-                        // Get AQI color for the step
-                        const getAQIColor = (aqi: number | null): string => {
-                          if (!aqi) return '#6b7280'; // Gray for unknown AQI
-                          if (aqi <= 50) return '#22c55e';        // Green - Good
-                          if (aqi <= 100) return '#eab308';       // Yellow - Moderate  
-                          if (aqi <= 150) return '#f97316';       // Orange - Unhealthy for Sensitive Groups
-                          if (aqi <= 200) return '#ef4444';       // Red - Unhealthy
-                          if (aqi <= 300) return '#a855f7';       // Purple - Very Unhealthy
-                          return '#7c2d12';                       // Maroon - Hazardous
-                        };
-
-                        const getAQICategory = (aqi: number | null): string => {
-                          if (!aqi) return 'Unknown';
-                          if (aqi <= 50) return 'Good';
-                          if (aqi <= 100) return 'Moderate';
-                          if (aqi <= 150) return 'Unhealthy for Sensitive Groups';
-                          if (aqi <= 200) return 'Unhealthy';
-                          if (aqi <= 300) return 'Very Unhealthy';
-                          return 'Hazardous';
-                        };
-
-                        const aqiColor = getAQIColor(step.aqi);
-                        const aqiCategory = getAQICategory(step.aqi);
-                        
-                        return (
-                          <li key={idx} className="mb-3 p-3 bg-gray-50 rounded-lg border-l-4" style={{ borderLeftColor: aqiColor }}>
-                            <div className="text-gray-800 font-medium" dangerouslySetInnerHTML={{ __html: step.instruction }} />
-                            <div className="flex flex-wrap items-center gap-3 mt-2 text-sm">
-                              <span className="text-gray-600">{step.distance} • {step.duration}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-gray-600">AQI:</span>
-                                <span 
-                                  className="px-2 py-1 rounded-full text-white font-bold text-xs"
-                                  style={{ backgroundColor: aqiColor }}
-                                >
-                                  {step.aqi || 'N/A'}
-                                </span>
-                                <span className="text-xs text-gray-500">{aqiCategory}</span>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })
-                    ) : (
-                      <li className="text-gray-800">No steps found.</li>
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+                {/* Route Header */}
+                <div className={`
+                  p-6 border-b border-gray-200
+                  ${selectedRouteType === 'best' ? 'bg-green-50' : 
+                    selectedRouteType === 'worst' ? 'bg-red-50' : 'bg-yellow-50'}
+                `}>
+                  <h3 className={`font-bold text-xl mb-4 flex items-center gap-2 ${
+                    selectedRouteType === 'best' ? 'text-green-700' : 
+                    selectedRouteType === 'worst' ? 'text-red-600' : 'text-yellow-600'
+                  }`}>
+                    {selectedRouteType === 'best' ? '🥇' : selectedRouteType === 'worst' ? '🥉' : '🥈'} 
+                    {selectedRouteType === 'best' ? 'Good Route' : 
+                     selectedRouteType === 'worst' ? 'Bad Route' : 'Alternative Route'}
+                    {selectedRoute.recommended && (
+                      <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
+                        Recommended
+                      </span>
                     )}
-                  </ol>
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {!isCircular && (
+                      <>
+                        <div>
+                          <span className="font-semibold text-blue-700">From:</span>
+                          <div className="font-bold text-blue-900 break-words">{selectedRoute.from}</div>
+                        </div>
+                        <div>
+                          <span className="font-semibold text-green-700">To:</span>
+                          <div className="font-bold text-green-900 break-words">{selectedRoute.to}</div>
+                        </div>
+                      </>
+                    )}
+                    {isCircular && (
+                      <div className="md:col-span-2">
+                        <span className="font-semibold text-purple-700">Round Trip:</span>
+                        <div className="font-bold text-purple-900 break-words">{selectedRoute.from} → Loop → {selectedRoute.from}</div>
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-semibold text-gray-800">Air Quality:</span>
+                      <div className={`font-bold text-lg ${aqiColor}`}>
+                        {selectedRoute.pollutionScore}
+                        <div className="text-sm font-normal text-gray-600">
+                          Avg AQI: {selectedRoute.avgAQI || 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Map Section */}
+                <div className="p-6 border-b border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    🗺️ Route Map
+                  </h4>
+                  <div className="rounded-lg overflow-hidden shadow-md">
+                    <LeafletMap 
+                      path={path}
+                      mapCenter={mapCenter}
+                      routeColor={routeColor}
+                      isCircular={isCircular}
+                      routeSteps={selectedRoute.steps}
+                    />
+                  </div>
+                </div>
+
+                {/* Steps Section */}
+                <div className="p-6">
+                  <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    📋 Route Steps ({selectedRoute.steps?.length || 0} steps)
+                  </h4>
+                  <div className="max-h-96 overflow-y-auto">
+                    <ol className="space-y-3">
+                      {selectedRoute.steps && selectedRoute.steps.length > 0 ? (
+                        selectedRoute.steps.map((step, idx) => {
+                          // Get AQI color for the step
+                          const getAQIColor = (aqi: number | null): string => {
+                            if (!aqi) return '#6b7280'; // Gray for unknown AQI
+                            if (aqi <= 50) return '#22c55e';        // Green - Good
+                            if (aqi <= 100) return '#eab308';       // Yellow - Moderate  
+                            if (aqi <= 150) return '#f97316';       // Orange - Unhealthy for Sensitive Groups
+                            if (aqi <= 200) return '#ef4444';       // Red - Unhealthy
+                            if (aqi <= 300) return '#a855f7';       // Purple - Very Unhealthy
+                            return '#7c2d12';                       // Maroon - Hazardous
+                          };
+
+                          const getAQICategory = (aqi: number | null): string => {
+                            if (!aqi) return 'Unknown';
+                            if (aqi <= 50) return 'Good';
+                            if (aqi <= 100) return 'Moderate';
+                            if (aqi <= 150) return 'Unhealthy for Sensitive Groups';
+                            if (aqi <= 200) return 'Unhealthy';
+                            if (aqi <= 300) return 'Very Unhealthy';
+                            return 'Hazardous';
+                          };
+
+                          const aqiColor = getAQIColor(step.aqi);
+                          const aqiCategory = getAQICategory(step.aqi);
+                          
+                          return (
+                            <li key={idx} className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg border-l-4" style={{ borderLeftColor: aqiColor }}>
+                              <div className="flex-shrink-0 w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                                {idx + 1}
+                              </div>
+                              <div className="flex-grow">
+                                <div className="text-gray-800 font-medium mb-2" dangerouslySetInnerHTML={{ __html: step.instruction }} />
+                                <div className="flex flex-wrap items-center gap-4 text-sm">
+                                  <div className="flex items-center gap-2 text-gray-600">
+                                    <span>📏</span>
+                                    <span>{step.distance}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-gray-600">
+                                    <span>⏱️</span>
+                                    <span>{step.duration}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-gray-600">🌬️ AQI:</span>
+                                    <span 
+                                      className="px-2 py-1 rounded-full text-white font-bold text-xs"
+                                      style={{ backgroundColor: aqiColor }}
+                                    >
+                                      {step.aqi || 'N/A'}
+                                    </span>
+                                    <span className="text-xs text-gray-500">{aqiCategory}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </li>
+                          );
+                        })
+                      ) : (
+                        <li className="text-gray-600 text-center py-8">No steps found for this route.</li>
+                      )}
+                    </ol>
+                  </div>
                 </div>
               </div>
             );
-          })}
+          })()}
         </div>
       )}
     </div>

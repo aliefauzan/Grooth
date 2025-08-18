@@ -121,14 +121,15 @@ async function tryWithDrivingProfile(from, to) {
 }
 
 // Returns steps with polyline and instructions using OpenRoute Service Directions API (cycling profile)
-module.exports.getBikeRouteSteps = async (from, to) => {
+module.exports.getBikeRouteSteps = async (from, to, profile = 'cycling-regular') => {
   try {
     const [fromLat, fromLng] = from.split(',').map(Number);
     const [toLat, toLng] = to.split(',').map(Number);
     
-    const requestBody = {
+    // Configure different routing options based on profile
+    let requestBody = {
       coordinates: [[fromLng, fromLat], [toLng, toLat]], // Note: OpenRoute uses [lng, lat] format
-      profile: 'cycling-regular', // Use cycling profile for bike routes
+      profile: profile, // Use the specified profile
       format: 'json',
       instructions: true,
       geometry: true,
@@ -137,8 +138,26 @@ module.exports.getBikeRouteSteps = async (from, to) => {
       continue_straight: false // Allow U-turns if needed
     };
 
+    // Add profile-specific options for route variety
+    if (profile === 'cycling-regular') {
+      // Best route: avoid highways for cleaner air
+      requestBody.options = {
+        avoid_features: ['highways']
+      };
+    } else if (profile === 'cycling-road') {
+      // Alternative route: allow more road types
+      requestBody.options = {
+        avoid_features: ['steps']
+      };
+    } else if (profile === 'driving-car') {
+      // Worst route: use all road types (typically more polluted)
+      requestBody.options = {
+        avoid_features: []
+      };
+    }
+
     const response = await axios.post(
-      `https://api.openrouteservice.org/v2/directions/cycling-regular`,
+      `https://api.openrouteservice.org/v2/directions/${profile}`,
       requestBody,
       {
         headers: {
@@ -171,7 +190,7 @@ module.exports.getBikeRouteSteps = async (from, to) => {
             
             // Convert OpenRoute step format to our expected format
             const stepData = {
-              instruction: step.instruction || 'Continue',
+              instruction: `${profile === 'driving-car' ? '[Driving] ' : profile === 'cycling-road' ? '[Road] ' : ''}${step.instruction || 'Continue'}`,
               distance: step.distance >= 1 ? `${step.distance.toFixed(2)} km` : `${(step.distance * 1000).toFixed(0)} m`,
               duration: `${Math.round(step.duration / 60)} min`,
               start_location: {
@@ -188,13 +207,14 @@ module.exports.getBikeRouteSteps = async (from, to) => {
         }
       });
       
+      console.log(`Route found using ${profile}: ${steps.length} steps`);
       return steps;
     } else {
-      console.log('No routes found in OpenRoute response:', response.data);
+      console.log(`No routes found in OpenRoute response for profile ${profile}:`, response.data);
       return [];
     }
   } catch (error) {
-    console.error('OpenRoute Directions error:', error.message);
+    console.error(`OpenRoute Directions error for profile ${profile}:`, error.message);
     if (error.response) {
       console.error('Response status:', error.response.status);
       console.error('Response data:', error.response.data);
@@ -206,8 +226,10 @@ module.exports.getBikeRouteSteps = async (from, to) => {
         // Handle radius/routable point errors
         if (errorData.code === 2010) {
           console.error('Location not routable:', errorData.message);
-          // Try with driving profile as fallback
-          return await tryWithDrivingProfile(from, to);
+          // Try with driving profile as fallback only if not already using it
+          if (profile !== 'driving-car') {
+            return await tryWithDrivingProfile(from, to);
+          }
         }
         
         // Handle other specific errors
